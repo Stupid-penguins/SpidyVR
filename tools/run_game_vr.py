@@ -2253,6 +2253,9 @@ def main():
                         "at about half the distance the flat game has them, and an upscaled eye's textures are "
                         'asked for at its smaller rendered size (about 2 percent more frames)')
     p.add_argument('--auto-launch',action='store_true')
+    p.add_argument('--game-exe',default='',
+                   help="With --auto-launch: start the game straight from this Spider-Man.exe instead of through "
+                        "Steam's or the Epic Games Store's launcher")
     p.add_argument('--close-game', action='store_true',
                    help='A running game that already holds Spidy (VR ran in it, or another build is in it) is '
                         'closed as its close button does, then started again (the launcher asks the player first)')
@@ -2476,7 +2479,8 @@ def session(a, startup):
     # switch); before October 5's seventh build the launcher found one, once, and VR stayed on the
     # screen after any reload.
     if a.auto_launch:
-        game = wait_for_game(prepare=prepare_display, early=render_memory_module, ready=lambda game: True)
+        game = wait_for_game(prepare=prepare_display, early=render_memory_module, ready=lambda game: True,
+                             exe=a.game_exe or None)
     else:
         game = Game(find_game())
         render_memory_module(game.pid)

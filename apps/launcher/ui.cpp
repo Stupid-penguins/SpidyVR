@@ -432,8 +432,13 @@ void App::start(bool closeGame) {
     administratorError_.clear();
     const auto report = newReportPath(scan_.root);
     const auto* chosen = runtime();
-    const auto args = spidy::launcher::sessionArguments(settings_.options, report, chosen ? chosen->manifest : L"",
-                                                        newStopEventName(), closeGame);
+    auto args = spidy::launcher::sessionArguments(settings_.options, report, chosen ? chosen->manifest : L"",
+                                                  newStopEventName(), closeGame);
+    // The game is started straight from its Spider-Man.exe, not through Steam's or Epic's launcher.
+    if (!scan_.gameExe.empty()) {
+        args.push_back(L"--game-exe");
+        args.push_back(scan_.gameExe);
+    }
     log_.clear();
     logCount_ = 0;
     if (!session_.start(scan_.python, scan_.root, args, report, startError_))

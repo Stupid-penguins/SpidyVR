@@ -43,7 +43,13 @@ class SteamTests(unittest.TestCase):
                 '"libraryfolders"\n{\n\t"1"\n\t{\n\t\t"path"\t\t"'+str(library).replace('\\','\\\\')+
                 '"\n\t}\n}\n')
             self.assertFalse(vr_launcher.steam_has_game(steam))
-            (library/f'steamapps/appmanifest_{vr_launcher.STEAM_APP_ID}.acf').write_text('"AppState"{}')
+            # A manifest left behind with no game in its folder (Steam says "no license"): not Steam's copy.
+            (library/f'steamapps/appmanifest_{vr_launcher.STEAM_APP_ID}.acf').write_text(
+                '"AppState"\n{\n\t"installdir"\t\t"Marvel\'s Spider-Man Remastered"\n}\n')
+            self.assertFalse(vr_launcher.steam_has_game(steam))
+            game=library/"steamapps/common/Marvel's Spider-Man Remastered"
+            game.mkdir(parents=True)
+            (game/'Spider-Man.exe').write_bytes(b'')
             self.assertTrue(vr_launcher.steam_has_game(steam))
 
     def test_the_epic_games_stores_copy_is_started_by_its_launchers_link(self):

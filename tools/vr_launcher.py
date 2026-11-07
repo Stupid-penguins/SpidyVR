@@ -253,7 +253,17 @@ def steam_has_game(steam):
         try: text=vdf.read_text(encoding='utf-8',errors='replace')
         except OSError: continue
         libraries+=[pathlib.Path(p.replace('\\\\','\\')) for p in re.findall(r'"path"\s+"([^"]+)"',text)]
-    return any((library/f'steamapps/appmanifest_{STEAM_APP_ID}.acf').is_file() for library in libraries)
+    # A manifest alone is not enough: one left behind (a free weekend, Family Sharing, an old install) sent
+    # Epic Games Store players to Steam, which then said they had no license. Steam's copy counts only when
+    # its Spider-Man.exe is really there.
+    for library in libraries:
+        manifest=library/f'steamapps/appmanifest_{STEAM_APP_ID}.acf'
+        try: text=manifest.read_text(encoding='utf-8',errors='replace')
+        except OSError: continue
+        folder=re.search(r'"installdir"\s+"([^"]+)"',text)
+        if folder and (library/'steamapps/common'/folder.group(1)/'Spider-Man.exe').is_file():
+            return True
+    return False
 
 
 def ready_player(game):
@@ -300,20 +310,34 @@ def enlarge_render_memory(pid,megabytes=RENDER_RING_MB,patience=2.5,scene_pool=S
         return exports
 
 
-def wait_for_game(timeout=180,prepare=None,early=None,ready=None):
+def wait_for_game(timeout=180,prepare=None,early=None,ready=None,exe=None):
     """`prepare` runs only when this launcher starts the game, before the game reads its settings.
 
     `early(pid)` runs once, as soon as the game process exists. `ready(game)` decides when to
-    return; by default, when a save is loaded and its player exists.
+    return; by default, when a save is loaded and its player exists. `exe`: the game's Spider-Man.exe,
+    started straight, with no store launcher in between; without it, Steam's or Epic's launcher starts it.
     """
     ready=ready or ready_player
     try: pid=find_game()
     except RuntimeError as error:
         if not str(error).startswith('Spider-Man is not running.'): raise
         pid=None
+    direct=pathlib.Path(exe) if exe and pid is None and pathlib.Path(exe).is_file() else None
     # Steam's copy is the one Spidy is made on; the Epic Games Store's is started when Steam has none.
-    epic=None
-    if pid is None:
+    epic=steam=None
+    if direct:
+        if prepare: prepare()
+        # -nolauncher is present in the supported Spider-Man executable. The game itself may still hand
+        # over to its store's launcher once to check the license.
+        try: subprocess.Popen([str(direct),'-nolauncher'],cwd=str(direct.parent))
+        except OSError as error:
+            if getattr(error,'winerror',None)!=740: raise
+            raise NeedsAdministrator('Spider-Man.exe is set to run as administrator: run Spidy as '
+                                     'administrator too, or turn that setting off.') from error
+        print('Starting Spider-Man from '+str(direct)+'. Select your save and Continue; VR will attach '
+              'automatically.' if ready is ready_player else 'Starting Spider-Man from '+str(direct)+'.',
+              flush=True)
+    elif pid is None:
         steam=steam_executable()
         if not (steam and steam_has_game(steam)): epic=epic_launch()
     if epic:
@@ -322,6 +346,8 @@ def wait_for_game(timeout=180,prepare=None,early=None,ready=None):
         print('Starting Spider-Man from the Epic Games Store. Select your save and Continue; VR will attach '
               'automatically.' if ready is ready_player else 'Starting Spider-Man from the Epic Games Store.',
               flush=True)
+    elif direct:
+        pass  # started above, straight from its Spider-Man.exe
     elif pid is None:
         if not steam: raise RuntimeError('Steam was not found. Start Spider-Man and run this launcher again.')
         # Before anything is changed or started: an administrator's Steam starts an administrator's game.
