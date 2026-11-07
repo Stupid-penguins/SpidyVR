@@ -2480,7 +2480,7 @@ def session(a, startup):
     # screen after any reload.
     if a.auto_launch:
         game = wait_for_game(prepare=prepare_display, early=render_memory_module, ready=lambda game: True,
-                             exe=a.game_exe or None)
+                             exe=getattr(a, 'game_exe', '') or None)
     else:
         game = Game(find_game())
         render_memory_module(game.pid)
