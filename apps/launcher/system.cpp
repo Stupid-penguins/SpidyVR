@@ -565,6 +565,9 @@ Settings loadSettings() {
             o.monitorRate = number() >= 0 && spidy::validMonitorRate(static_cast<uint32_t>(number()))
                                 ? number()
                                 : static_cast<int>(spidy::defaultMonitorRate);
+        else if (key == "eye_reflections") o.eyeReflections = number() != 0;
+        else if (key == "adaptive_reach") o.adaptiveReach = number() != 0;
+        else if (key == "game_priority") o.gamePriority = number() != 0;
         else if (key == "swing_speed") o.swingSpeed = std::clamp(number(), 10, 65);
         else if (key == "snap_turn") o.snapTurn = std::clamp(number(), 0, 90);
         else if (key == "smooth_turn") o.smoothTurn = std::clamp(number(), 0, 360);
@@ -621,6 +624,8 @@ void saveSettings(const Settings& settings) {
          << "\ngame_sharpening=" << o.gameSharpening
          << "\nrender_scale=" << o.renderScale << "\nupscale=" << o.upscale
          << "\nmonitor_rate=" << o.monitorRate
+         << "\neye_reflections=" << o.eyeReflections << "\nadaptive_reach=" << o.adaptiveReach
+         << "\ngame_priority=" << o.gamePriority
          << "\nswing_speed=" << o.swingSpeed << "\ngravity_percent=" << o.weight << "\nsnap_turn=" << o.snapTurn
          << "\nsmooth_turn=" << o.smoothTurn
          << "\nhaptics=" << o.haptics << "\nbody_haptics=" << o.bodyHaptics << "\nscreen_size=" << o.screenSize

@@ -50,6 +50,10 @@ _current_process.restype=w.HANDLE
 _wait=_kernel32.WaitForSingleObject
 _wait.argtypes=[w.HANDLE,w.DWORD]
 _wait.restype=w.DWORD
+_set_priority=_kernel32.SetPriorityClass
+_set_priority.argtypes=[w.HANDLE,w.DWORD]
+_set_priority.restype=w.BOOL
+ABOVE_NORMAL_PRIORITY,BELOW_NORMAL_PRIORITY=0x8000,0x4000
 _advapi32=c.WinDLL('advapi32',use_last_error=True)
 _open_token=_advapi32.OpenProcessToken
 _open_token.restype,_open_token.argtypes=w.BOOL,(w.HANDLE,w.DWORD,c.POINTER(w.HANDLE))
@@ -88,6 +92,24 @@ def exit_status(game):
     if not game.handle or not _exit_code(game.handle,c.byref(code)) or code.value==259:
         return None
     return code.value
+
+
+def favour_game(pid,set_priority=None,current=None,opener=None,closer=None):
+    """--game-priority: the game above normal priority and this session's own process below it, so on a
+    processor with few cores the game's threads get their turn first. Spidy's worker inside the game runs
+    with the game. The console's line. Not high priority: that can starve the headset's streaming app and
+    Windows' own audio."""
+    set_priority=set_priority or _set_priority
+    opener,closer=opener or open_process,closer or close
+    game=opener(0x0200,False,pid)  # PROCESS_SET_INFORMATION
+    raised=bool(game) and bool(set_priority(game,ABOVE_NORMAL_PRIORITY))
+    if game: closer(game)
+    lowered=bool(set_priority((current or _current_process)(),BELOW_NORMAL_PRIORITY))
+    if raised and lowered:
+        return 'Priority: the game above normal, Spidy\'s session below it (--game-priority).'
+    return ('Priority: ' + ('the game above normal' if raised else 'the game\'s could not be raised') + ', ' +
+            ('Spidy\'s session below it' if lowered else 'Spidy\'s session\'s could not be lowered') +
+            ' (--game-priority).')
 
 
 class NeedsAdministrator(RuntimeError):

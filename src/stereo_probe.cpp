@@ -1,5 +1,6 @@
 // Tests the engine's own secondary scene views on its view-maintenance thread.
 // The original scene pass remains owned by the game. No desktop capture is used.
+#include "spidy/adaptive_reach.hpp"
 #include "spidy/eye_job_table.hpp"
 #include "spidy/eye_resolution.hpp"
 #include "spidy/game_fp.hpp"
@@ -2780,11 +2781,38 @@ extern "C" __declspec(dllexport) DWORD WINAPI SpidyEyeShadows(void* mode) {
 // How far away the far buildings draw their full models while an eye stands in
 // for the resting game view (impostorReach above): percent of the game's own
 // distance, 50-400; 150 unless set. Takes effect at the next frame.
+// ADAPTIVE BUILDING DETAIL (adaptive_reach.hpp) scales the reach set here: the
+// set reach, the VR loop's scale of it, and whether the session asked for it.
+static std::atomic<uint32_t> impostorReachSet{150}, impostorReachScale{adaptive_reach::maximumScale};
+static std::atomic<bool> impostorAdaptive{};
+static void placeImpostorReach() {
+    const uint32_t set = impostorReachSet.load();
+    impostorReach = impostorAdaptive.load() ? adaptive_reach::reach(set, impostorReachScale.load()) : set;
+}
+bool spidy::adaptive_reach::on() {
+    return impostorAdaptive.load();
+}
+void spidy::adaptive_reach::apply(uint32_t scale) {
+    impostorReachScale = std::clamp(scale, minimumScale, maximumScale);
+    placeImpostorReach();
+}
 extern "C" __declspec(dllexport) DWORD WINAPI SpidyImpostorReach(void* percent) {
     const auto value = reinterpret_cast<uintptr_t>(percent);
     if (value < 50 || value > 400)
         return 4401;
-    impostorReach = static_cast<uint32_t>(value);
+    impostorReachSet = static_cast<uint32_t>(value);
+    placeImpostorReach();
+    return 0;
+}
+// ADAPTIVE BUILDING DETAIL: 1 the reach follows the frame rate (the VR loop
+// scales it, adaptive_reach.hpp), 0 it stays as set (unless set, as before).
+extern "C" __declspec(dllexport) DWORD WINAPI SpidyAdaptiveReach(void* on) {
+    const auto value = reinterpret_cast<uintptr_t>(on);
+    if (value > 1)
+        return 4901;
+    impostorAdaptive = value != 0;
+    impostorReachScale = adaptive_reach::maximumScale;
+    placeImpostorReach();
     return 0;
 }
 // The far buildings' cone (native_stream.hpp): its margin each way, degrees,

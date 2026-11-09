@@ -1283,7 +1283,16 @@ class ProtocolTests(unittest.TestCase):
     def test_the_monitor_rate_is_checked_before_anything_starts(self):
         import run_game_vr
         self.assertEqual((run_game_vr.MONITOR_RATES, run_game_vr.DEFAULT_MONITOR_RATE), ((0, 240), 30))
-        for argv in (['--monitor-rate', '-1'], ['--monitor-rate', '241']):
+        # No desktop view (spidy::monitorRateOff) is a rate of its own; the numbers about it are not.
+        self.assertEqual(run_game_vr.MONITOR_OFF, 1000)
+        with patch.object(sys, 'argv', ['run_game_vr.py', '--monitor-rate', '1000']), \
+                patch.object(run_game_vr, 'keep_console'), patch.object(run_game_vr, 'Startup'), \
+                patch.object(run_game_vr, 'session') as session:
+            run_game_vr.main()
+        session.assert_called_once()
+        self.assertEqual(session.call_args.args[0].monitor_rate, 1000)
+        for argv in (['--monitor-rate', '-1'], ['--monitor-rate', '241'], ['--monitor-rate', '999'],
+                     ['--monitor-rate', '1001']):
             with patch.object(sys, 'argv', ['run_game_vr.py', *argv]), patch('sys.stderr'), \
                     patch.object(run_game_vr, 'session') as session, self.assertRaises(SystemExit):
                 run_game_vr.main()

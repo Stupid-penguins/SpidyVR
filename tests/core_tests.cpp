@@ -23,6 +23,7 @@
 #include "spidy/presentation_gate.hpp"
 #include "spidy/eye_resolution.hpp"
 #include "spidy/monitor_rate.hpp"
+#include "spidy/adaptive_reach.hpp"
 #include "spidy/eye_snapshot.hpp"
 #include "spidy/vr_settings.hpp"
 #include "spidy/recording_fov.hpp"
@@ -9507,6 +9508,46 @@ int main() {
         check(presents == 20,"every frame of a slower game");
         // After a pause (a menu, the game screen) the next present goes out at once.
         check(monitorPresentDue(10'000'000, due, 66000, 30) && due == 10'000'000 + 2200,"at once after a pause");
+        // Off: no present at all, however long it has been.
+        check(validMonitorRate(monitorRateOff) && !validMonitorRate(monitorRateOff - 1),"off is a rate of its own");
+        due = 0;
+        presents = 0;
+        for (int frame = 0; frame < 200; ++frame)
+            presents += monitorPresentDue(1000 + frame * 1000, due, 66000, monitorRateOff);
+        check(presents == 0 && due == 0,"no desktop view: not one present");
+    });
+    test("ADAPTIVE BUILDING DETAIL follows whether the game keeps up with the headset", [] {
+        namespace ar = spidy::adaptive_reach;
+        ar::State s;
+        // Every pair fresh: the reach stays out.
+        bool changed = false;
+        for (uint32_t i = 0; i < ar::window * 10; ++i)
+            changed |= ar::frame(s, false);
+        check(!changed && s.scale == ar::maximumScale,"a game that keeps up keeps the full reach");
+        // A third of the pairs shown again: a step in at the end of each window, down to the floor.
+        for (uint32_t i = 0; i < ar::window; ++i)
+            changed = ar::frame(s, i % 3 == 0);
+        check(changed && s.scale == ar::maximumScale - ar::stepIn,"one window behind: one step in");
+        for (uint32_t i = 0; i < ar::window * 10; ++i)
+            ar::frame(s, i % 3 == 0);
+        check(s.scale == ar::minimumScale,"never nearer than half the set reach");
+        // Back to keeping up: out a step only after calmWindows calm windows.
+        for (uint32_t i = 0; i < ar::window * (ar::calmWindows - 1); ++i)
+            ar::frame(s, false);
+        check(s.scale == ar::minimumScale,"not out again at the first calm windows");
+        for (uint32_t i = 0; i < ar::window; ++i)
+            ar::frame(s, false);
+        check(s.scale == ar::minimumScale + ar::stepOut,"out a step after enough calm");
+        // A few reused pairs (between the two marks) neither brings it in nor counts as calm.
+        ar::State middle;
+        middle.scale = 70;
+        middle.calm = ar::calmWindows - 1;
+        for (uint32_t i = 0; i < ar::window; ++i)
+            ar::frame(middle, i < 4);
+        check(middle.scale == 70 && middle.calm == 0,"in between: stays, calm count reset");
+        // The reach: a percent of the set one, never below the game's own distance unless set lower.
+        check(ar::reach(200, 100) == 200 && ar::reach(200, 75) == 150 && ar::reach(200, 50) == 100 && ar::reach(150, 50) == 100 &&
+                  ar::reach(80, 50) == 80 && ar::reach(400, 50) == 200 && ar::reach(200, 10) == 100,"reach from the set one");
     });
     test("the monitor's left eye is the one the headset showed while a copy of it is fresh", [] {
         // Half a second; two and a half pictures of a window slower than 5 a second.

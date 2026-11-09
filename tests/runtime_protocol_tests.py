@@ -52,6 +52,24 @@ class SteamTests(unittest.TestCase):
             (game/'Spider-Man.exe').write_bytes(b'')
             self.assertTrue(vr_launcher.steam_has_game(steam))
 
+    def test_game_priority_raises_the_game_and_lowers_the_session(self):
+        calls=[]
+        set_priority=lambda handle,value: calls.append((handle,value)) or True
+        closed=[]
+        line=vr_launcher.favour_game(42,set_priority=set_priority,current=lambda: 'me',
+                                     opener=lambda access,inherit,pid: ('game',access,pid),closer=closed.append)
+        self.assertEqual(calls,[(('game',0x0200,42),vr_launcher.ABOVE_NORMAL_PRIORITY),
+                                ('me',vr_launcher.BELOW_NORMAL_PRIORITY)])
+        self.assertEqual(closed,[('game',0x0200,42)])
+        self.assertIn('the game above normal',line)
+        # A game Windows keeps closed: the session still steps back, and the line says so.
+        calls.clear()
+        line=vr_launcher.favour_game(42,set_priority=set_priority,current=lambda: 'me',
+                                     opener=lambda access,inherit,pid: None,closer=closed.append)
+        self.assertEqual(calls,[('me',vr_launcher.BELOW_NORMAL_PRIORITY)])
+        self.assertIn("the game's could not be raised",line)
+        self.assertNotIn(0x80,[value for _,value in calls])  # never HIGH_PRIORITY_CLASS
+
     def test_the_epic_games_stores_copy_is_started_by_its_launchers_link(self):
         with tempfile.TemporaryDirectory() as folder:
             manifests=pathlib.Path(folder)

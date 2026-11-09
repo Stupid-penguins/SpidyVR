@@ -11,9 +11,15 @@ namespace spidy {
 // on a laptop whose screen hangs on the other graphics adapter (43 frames a
 // second with every present, 66 with none).
 inline constexpr uint32_t defaultMonitorRate = 30, maximumMonitorRate = 240;
+// No desktop view at all: the window gets no present while the headset shows
+// the eyes, so the graphics card spends nothing on it (no mirror draw, no copy
+// of the shown eye, no present). The window keeps whatever it showed last.
+// Menus and the game screen still present as before, and the HUD is still
+// read from the game's frame at its own rate.
+inline constexpr uint32_t monitorRateOff = 1000;
 
 constexpr bool validMonitorRate(uint32_t rate) {
-    return rate <= maximumMonitorRate;
+    return rate <= maximumMonitorRate || rate == monitorRateOff;
 }
 
 // Whether the present at `now` goes to the window, and when the next one is
@@ -23,6 +29,8 @@ constexpr bool validMonitorRate(uint32_t rate) {
 constexpr bool monitorPresentDue(int64_t now, int64_t& due, int64_t frequency, uint32_t rate) {
     if (!rate)
         return true;
+    if (rate == monitorRateOff)
+        return false;
     if (now < due)
         return false;
     const int64_t period = frequency / rate;

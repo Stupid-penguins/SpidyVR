@@ -30,7 +30,7 @@ from probe_game_swing import snapshot as swing_snapshot
 from probe_native_motion import snapshot as motion_snapshot
 from vr_launcher import (LauncherLock, alive, exit_status, bring_to_front, wait_for_game, enlarge_render_memory, elevated,
                          RENDER_MEMORY_HOOKS, NeedsAdministrator, NEEDS_ADMINISTRATOR_EXIT, CLOSE_GAME_EXIT,
-                         close_game)
+                         close_game, favour_game)
 import game_freeze
 import vr_display
 import xr_runtime
@@ -54,6 +54,8 @@ UPSCALES, DEFAULT_UPSCALE = (50, 100), 67
 # How often the game's window gets the left eye in immersive VR: presents a second, 0 for every frame
 # (include/spidy/monitor_rate.hpp).
 MONITOR_RATES, DEFAULT_MONITOR_RATE = (0, 240), 30
+# No desktop view at all (spidy::monitorRateOff): the window gets nothing while the headset shows the eyes.
+MONITOR_OFF = 1000
 # What a session takes as a T-pose calibration, millimetres (body_calibration.hpp): the eye height and the arm
 # length (from Spider-Man's shoulder at the player's size to the wrist) the body is sized to.
 EYE_HEIGHTS_MM, ARM_LENGTHS_MM = (1000, 2500), (250, 1200)
@@ -2230,8 +2232,9 @@ def main():
                         'left eye')
     p.add_argument('--monitor-rate', type=int, default=DEFAULT_MONITOR_RATE,
                    help='How often the game window gets your left eye in immersive VR: pictures a second (1..240; '
-                        'default %d), or 0 for every frame, as builds before October 11 did. Each one costs the '
-                        'graphics card time the headset could have.' % DEFAULT_MONITOR_RATE)
+                        'default %d), 0 for every frame, as builds before October 11 did, or %d for no desktop '
+                        'view at all (no recording view either). Each picture costs the graphics card time the '
+                        'headset could have.' % (DEFAULT_MONITOR_RATE, MONITOR_OFF))
     p.add_argument('--no-eye-reflections', action='store_true',
                    help="The eyes without the game's screen-space reflections, as builds before October 11's "
                         "second did. Without it they follow the game's own Screen Space Reflections setting")
@@ -2243,6 +2246,13 @@ def main():
                    help="How far away the far buildings draw their full models (lit windows, the rooms behind them) "
                         "in percent of the game's own distance, 145 m (50-400; default 200, 150 before November 1). "
                         "More costs a little frame rate, video memory and room in the scene's slot pool")
+    p.add_argument('--adaptive-building-reach', action='store_true',
+                   help='The building reach follows the frame rate: while the game falls behind the headset it '
+                        'draws far buildings in full nearer (down to half of --building-reach, never below the '
+                        "game's own distance), and goes back out once frames keep up again")
+    p.add_argument('--game-priority', action='store_true',
+                   help="The game runs above normal priority and this session's own process below it, so on a "
+                        'processor with few cores the game gets its turn first')
     p.add_argument('--no-eye-pacing', action='store_true',
                    help='The game draws eye pairs as fast as it can, as builds before November 1 did; without it '
                         'it draws one pair a headset frame, each begun at the same point of the frame (no pairs '
@@ -2363,8 +2373,9 @@ def main():
         p.error('Use an upscale of %d..%d%%' % UPSCALES)
     if not 50 <= a.building_reach <= 400:
         p.error('Use a building reach of 50..400% of the game\'s distance')
-    if not MONITOR_RATES[0] <= a.monitor_rate <= MONITOR_RATES[1]:
-        p.error('Use a monitor rate of %d..%d a second (0: every frame)' % MONITOR_RATES)
+    if not MONITOR_RATES[0] <= a.monitor_rate <= MONITOR_RATES[1] and a.monitor_rate != MONITOR_OFF:
+        p.error('Use a monitor rate of %d..%d a second (0: every frame, %d: no desktop view)'
+                % (*MONITOR_RATES, MONITOR_OFF))
     if not 0 <= a.snap_turn <= 90 or not 0 <= a.smooth_turn <= 360 or not 0 <= a.haptics <= 100:
         p.error('Use 0..90 degrees of snap turn, 0..360 degrees a second of smooth turn and 0..100% vibration')
     if not 0 <= a.body_haptics <= 100:
@@ -2486,6 +2497,8 @@ def session(a, startup):
         render_memory_module(game.pid)
     startup.fields['game_pid'] = game.pid
     startup.fields['steam_build'] = game.steam_build
+    if getattr(a, 'game_priority', False):
+        print(favour_game(game.pid), flush=True)
     if not game.steam_build:
         print(f'This Spider-Man.exe is version {EXPECTED_VERSION} but not Steam\'s file (an Epic Games Store copy?). '
               'Spidy tries it: should the game\'s code differ where Spidy works with it, VR stops with a code '
@@ -2549,7 +2562,7 @@ def session(a, startup):
                                            'SpidyBodyData', 'SpidySlowMotionData', 'SpidyHudData',
                                            'SpidySteamData', 'SpidyPromptData', 'SpidyDiagData', 'SpidyImpostorReach',
                                            'SpidyHapticsData', 'SpidyStreamData', 'SpidyPaceData',
-                                           'SpidyEyePacing', 'SpidyBlurData',
+                                           'SpidyEyePacing', 'SpidyAdaptiveReach', 'SpidyBlurData',
                                            'SpidyReprojectData', 'SpidyHudCapture', 'SpidyLineRopeData'))
         stage_haptics(xr_hash)
         saved = vr_display.Registry().read(('ScreenSpaceReflections', 'RTReflections'))
@@ -2586,6 +2599,14 @@ def session(a, startup):
         # The far buildings' full models, while the left eye chooses them for the game's resting view.
         if call_remote(process, xr['SpidyImpostorReach'], a.building_reach):
             print(f'WARNING: the building reach {a.building_reach}% was refused; the eyes keep 150%.', flush=True)
+        # ADAPTIVE BUILDING DETAIL (adaptive_reach.hpp): that reach comes nearer while the game falls behind.
+        if getattr(a, 'adaptive_building_reach', False):
+            adaptive = xr.get('SpidyAdaptiveReach')
+            if not adaptive or call_remote(process, adaptive, 1):
+                print('WARNING: adaptive building detail was refused; the building reach stays as set.', flush=True)
+            else:
+                print(f'Building detail: adaptive, {a.building_reach}% of the game\'s distance while frames keep '
+                      'up, nearer while the game falls behind (--adaptive-building-reach).', flush=True)
         # One eye pair a headset frame (native_pace.hpp), unless asked for the game's own frame rate.
         if not a.no_eye_pacing and call_remote(process, xr['SpidyEyePacing'], 1):
             print('WARNING: the game could not be paced by the headset; it draws pairs as fast as it can.',

@@ -179,8 +179,9 @@ constexpr const char* kUpscales[] = {"Off (100%)", "High (77%)", "Quality (67%)"
                                      "Performance (50%)"};
 constexpr int kUpscaleValues[] = {100, 77, 67, 58, 50};
 // The monitor in VR: how often the game window gets the left eye (SessionOptions::monitorRate).
-constexpr const char* kMonitorRates[] = {"Every frame", "60 a second", "30 a second", "15 a second", "5 a second"};
-constexpr int kMonitorRateValues[] = {0, 60, 30, 15, 5};
+constexpr const char* kMonitorRates[] = {"Every frame", "60 a second", "30 a second", "15 a second", "5 a second",
+                                         "Off (none)"};
+constexpr int kMonitorRateValues[] = {0, 60, 30, 15, 5, static_cast<int>(spidy::monitorRateOff)};
 constexpr const char* kScreenSizes[] = {"Small", "Medium", "Large"};
 constexpr const char* kHudSizes[] = {"Off", "Small", "Medium", "Large"};
 constexpr const char* kScreenDepths[] = {"Off", "Low", "Medium", "High"};
@@ -1833,6 +1834,9 @@ void App::options(ImVec2 origin, ImVec2 size) {
         const char* reason = spidy::vr_settings::inactiveReason(item, values);
         if (o.stockMonitorView && (item == Item::recordingFov || item == Item::recordingSmoothing))
             reason = "Turn Normal camera on the monitor off in Diagnostics first.";
+        else if (o.monitorRate == static_cast<int>(spidy::monitorRateOff) &&
+                 (item == Item::recordingFov || item == Item::recordingSmoothing))
+            reason = "Monitor frame rate is Off: there is no desktop view to record.";
         const std::string explanation = reason ? std::string(reason) + " " + help : help;
         option(title, explanation.c_str(), controlWidth, [&] {
             ImGui::BeginDisabled(reason != nullptr);
@@ -2192,6 +2196,39 @@ void App::options(ImVec2 origin, ImVec2 size) {
                "The phone's MUSIC plays what the PC plays: Spotify, a browser. Off: the Music folder.", S(42),
                [&] { tabToggle("##pcmedia", Item::pcMedia); });
     });
+    // SHARP AND FAST (launcher_text.hpp, applySharpPerformance): frames from what the headset never shows,
+    // the picture kept sharp. The three switches under it are its parts a player can keep or drop.
+    group(6, 0, "Performance", [&] {
+        const bool inUse = spidy::launcher::sharpPerformance(o);
+        settingOption(Item::none, "Sharp and fast",
+                      inUse ? "In use: no desktop or recording view, no reflections in the eyes, far buildings "
+                              "nearer while frames fall behind, the game first on the processor. No upscaling, "
+                              "the game's sharpening kept."
+                            : "For an older graphics card such as a GTX 1080 Ti: frame rate from what the headset "
+                              "never shows, while the picture stays sharp (no upscaling). Sets the options below, "
+                              "Upscaling, Game's sharpening and Monitor frame rate.",
+                      S(116), [&] {
+                          ImGui::BeginDisabled(inUse);
+                          if (button(inUse ? "In use" : "Use", S(116))) {
+                              spidy::launcher::applySharpPerformance(o);
+                              tabChanged |= spidy::vr_settings::choose(Item::recordingFov, 0, tabOnly_);
+                              changed = true;
+                          }
+                          ImGui::EndDisabled();
+                      });
+        settingOption(Item::none, "Reflections in the eyes",
+                      "The game's screen-space reflections in VR, as its own Screen Space Reflections setting has "
+                      "them. Off saves each eye a full-screen pass.",
+                      S(42), [&] { changed |= toggle("##eyereflections", &o.eyeReflections); });
+        settingOption(Item::none, "Adaptive building detail",
+                      "While the game falls behind the headset, far buildings are drawn in full detail less far "
+                      "away; once frames keep up, the distance comes back.",
+                      S(42), [&] { changed |= toggle("##adaptivereach", &o.adaptiveReach); });
+        settingOption(Item::none, "Game first on the processor",
+                      "The game runs above normal priority and Spidy's helper below it: smoother on a processor "
+                      "with few cores, such as a Ryzen 5 3600.",
+                      S(42), [&] { changed |= toggle("##gamepriority", &o.gamePriority); });
+    });
     group(6, 0, "Picture", [&] {
         // Percent of the headset's own size, so no choice looks sharper than it is; with the headset checked,
         // the pixels it makes.
@@ -2289,7 +2326,7 @@ void App::options(ImVec2 origin, ImVec2 size) {
                [&] { changed |= toggle("##small", &o.smallWindow); });
         settingOption(Item::none, "Monitor frame rate",
                "How often the monitor gets your left eye in VR. Each picture costs the graphics card time the "
-               "headset could have.",
+               "headset could have. Off: no desktop view at all, the most frames for the headset.",
                S(150), [&] {
                    stepCombo("##monitor", kMonitorRates, kMonitorRateValues,
                              static_cast<int>(std::size(kMonitorRateValues)), &o.monitorRate);

@@ -4,6 +4,7 @@
 #include "spidy/wall_crawl_body.hpp"
 #include "spidy/wall_run_body.hpp"
 // The input bridge remains a separately verified, separately stoppable module.
+#include "spidy/adaptive_reach.hpp"
 #include "spidy/bhaptics_output.hpp"
 #include "spidy/body_calibration.hpp"
 #include "spidy/body_haptics.hpp"
@@ -803,6 +804,9 @@ DWORD WINAPI run(void*) {
         EyeSnapshotSchedule snapshots;
         EyeSnapshot pendingSnapshot{};
         uint64_t snapshotTicket{}, gapGeneration{};
+        // ADAPTIVE BUILDING DETAIL's count of fresh and reused eye pairs (adaptive_reach.hpp).
+        adaptive_reach::State reachState{};
+        uint64_t reachGeneration{};
         message(2, 0, "Waiting for the headset");
         players.start(config.base);
         game_player::Player player{};
@@ -1615,7 +1619,8 @@ DWORD WINAPI run(void*) {
             native_hud::setSize(values.hud);
             native_gpu::wantHudLayer(values.steadyHud && values.hud > 0);
             near_clip::set(values.nearClipMm);
-            recording_fov::set(values.recordingFov);
+            // With the desktop view off no window shows a recording view: the game renders none.
+            recording_fov::set(config.monitorRate == monitorRateOff ? 0 : values.recordingFov);
             recording_fov::smoothing(values.recordingSmoothing);
             sendSwingSettings();
             if (swingStarted && startPunch && samplePunch) {
@@ -5487,6 +5492,16 @@ DWORD WINAPI run(void*) {
                     copyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                        copyStart)
                                  .count();
+                    // ADAPTIVE BUILDING DETAIL: a pair shown again means the game fell behind
+                    // the headset; the far buildings' reach follows (adaptive_reach.hpp).
+                    if (copied && adaptive_reach::on()) {
+                        if (reachGeneration &&
+                            adaptive_reach::frame(reachState, imageGeneration == reachGeneration)) {
+                            adaptive_reach::apply(reachState.scale);
+                            diag_log::writef("building reach %u%% of the set reach", reachState.scale);
+                        }
+                        reachGeneration = imageGeneration;
+                    }
                     if (copied) {
                         // A scene's pair stays on its screen until play's first image.
                         drawn = saved->stereoScreen ? Presentation::stereoScreen

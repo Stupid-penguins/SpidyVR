@@ -534,11 +534,41 @@ struct SessionOptions {
     // Upscaling: percent of the eye's size, per side, the eyes' scene is rendered at (eye_resolution.hpp);
     // the game's temporal anti-aliasing brings it to the eye's size. 100 only anti-aliases.
     int upscale = static_cast<int>(defaultEyeUpscale);
-    // How often the game window gets your left eye in immersive VR: pictures a second, 0 for every frame
-    // (monitor_rate.hpp). Each one costs the graphics card time the headset could have.
+    // How often the game window gets your left eye in immersive VR: pictures a second, 0 for every frame,
+    // monitorRateOff for no desktop view at all (monitor_rate.hpp). Each one costs the graphics card time the
+    // headset could have.
     int monitorRate = static_cast<int>(defaultMonitorRate);
+    // The game's screen-space reflections in the eyes, as its Screen Space Reflections setting has them; off,
+    // none in VR whatever that setting says (--no-eye-reflections): each eye then skips a full-screen pass.
+    bool eyeReflections = true;
+    // The far buildings' full models come nearer while the game falls behind the headset, and go back out once
+    // it keeps up (--adaptive-building-reach; adaptive_reach.hpp).
+    bool adaptiveReach = false;
+    // The game above normal priority and the session's own process below it (--game-priority).
+    bool gamePriority = false;
     bool operator==(const SessionOptions&) const = default;
 };
+
+// SHARP AND FAST, the launcher's performance preset for an older graphics card: the frames come from what the
+// headset never shows (the desktop view, the recording view), the eyes' screen-space reflections, far
+// buildings drawn in full nearer while the game falls behind, and the game first in the processor's turns.
+// The picture itself stays sharp: no upscaling, the headset's own resolution or more, the game's sharpening
+// kept.
+inline void applySharpPerformance(SessionOptions& options) {
+    options.upscale = 100;
+    options.renderScale = std::max(options.renderScale, 100);
+    options.gameSharpening = true;
+    options.smallWindow = true;
+    options.monitorRate = static_cast<int>(monitorRateOff);
+    options.eyeReflections = false;
+    options.adaptiveReach = true;
+    options.gamePriority = true;
+}
+inline bool sharpPerformance(const SessionOptions& options) {
+    auto preset = options;
+    applySharpPerformance(preset);
+    return preset == options;
+}
 
 // Whether `options` hold a T-pose calibration a session takes: both measurements, each within its range.
 inline bool calibrated(const SessionOptions& options) {
@@ -583,6 +613,12 @@ inline std::vector<std::wstring> sessionArguments(const SessionOptions& options,
         args.emplace_back(L"--game-depth-of-field");
     if (options.gameSharpening)
         args.emplace_back(L"--game-sharpening");
+    if (!options.eyeReflections)
+        args.emplace_back(L"--no-eye-reflections");
+    if (options.adaptiveReach)
+        args.emplace_back(L"--adaptive-building-reach");
+    if (options.gamePriority)
+        args.emplace_back(L"--game-priority");
     if (calibrated(options)) {
         args.emplace_back(L"--eye-height");
         args.emplace_back(std::to_wstring(options.eyeHeightMm));
@@ -607,7 +643,9 @@ inline std::vector<std::wstring> sessionArguments(const SessionOptions& options,
         {std::clamp(options.weight, 40, 300), {L"--weight", 100}},
         {std::clamp(options.hud, 0, 3), {L"--hud", 2}},
         {std::clamp(options.flipSpeed, 90, 480), {L"--flip-speed", 180}},
-        {std::clamp(options.monitorRate, 0, static_cast<int>(maximumMonitorRate)),
+        {options.monitorRate == static_cast<int>(monitorRateOff)
+             ? options.monitorRate
+             : std::clamp(options.monitorRate, 0, static_cast<int>(maximumMonitorRate)),
          {L"--monitor-rate", static_cast<int>(defaultMonitorRate)}}};
     for (const auto& [value, flag] : settings)
         if (value != flag.second) {

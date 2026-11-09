@@ -166,6 +166,26 @@ int main() {
         check(quoteArgument(LR"(C:\Spidy Folder\)") == LR"("C:\Spidy Folder\\")", "trailing backslash doubled");
         check(quoteArgument(LR"(say "hi")") == LR"("say \"hi\"")", "quotes escaped");
     });
+    test("SHARP AND FAST keeps the picture sharp and takes frames from what the headset never shows", [] {
+        SessionOptions options;
+        check(!sharpPerformance(options), "not in use in a new launcher");
+        options.renderScale = 125;
+        options.swingSpeed = 50;
+        applySharpPerformance(options);
+        check(sharpPerformance(options), "in use once applied");
+        check(options.upscale == 100 && options.renderScale == 125 && options.gameSharpening,
+              "no upscaling, a higher resolution kept, the game's sharpening kept");
+        check(options.monitorRate == static_cast<int>(spidy::monitorRateOff) && options.smallWindow &&
+                  !options.eyeReflections && options.adaptiveReach && options.gamePriority,
+              "no desktop view, no reflections in the eyes, adaptive building detail, the game first");
+        check(options.swingSpeed == 50, "gameplay left alone");
+        options.renderScale = 80;
+        check(!sharpPerformance(options), "a resolution below the headset's is not the preset");
+        applySharpPerformance(options);
+        check(options.renderScale == 100, "the preset brings it back to the headset's own");
+        options.upscale = 67;
+        check(!sharpPerformance(options), "upscaling chosen again ends it");
+    });
     test("session arguments carry every option", [] {
         SessionOptions options;
         auto args = sessionArguments(options, L"r.json", L"vd.json", L"Local\\Stop");
@@ -220,6 +240,21 @@ int main() {
         options.monitorRate = 999;
         args = sessionArguments(options, L"r.json", L"", L"");
         check(args.size() == 9 && args[7] == L"--monitor-rate" && args[8] == L"240", "the monitor at most 240");
+        options.monitorRate = static_cast<int>(spidy::monitorRateOff);
+        args = sessionArguments(options, L"r.json", L"", L"");
+        check(args.size() == 9 && args[7] == L"--monitor-rate" && args[8] == L"1000",
+              "no desktop view: passed as it is, not capped at 240");
+        // SHARP AND FAST's three switches: each goes unsaid at its default.
+        options = {};
+        check(options.eyeReflections && !options.adaptiveReach && !options.gamePriority,
+              "reflections in the eyes, a fixed building reach and normal priority in a new launcher");
+        options.eyeReflections = false;
+        options.adaptiveReach = true;
+        options.gamePriority = true;
+        args = sessionArguments(options, L"r.json", L"", L"");
+        check(args.size() == 10 && args[7] == L"--no-eye-reflections" && args[8] == L"--adaptive-building-reach" &&
+                  args[9] == L"--game-priority",
+              "no reflections in the eyes, adaptive building detail and the game first");
         options = {};
         options.weight = 999;
         args = sessionArguments(options, L"r.json", L"", L"");

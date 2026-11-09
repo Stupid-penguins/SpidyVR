@@ -1117,11 +1117,25 @@ bool holdPresent(UINT flags) {
     ++presentsHeld;
     return true;
 }
+// A present held back with the desktop view off (monitorRateOff) never reaches
+// presentFrame, yet the headset's HUD is read from the game's frame there: it is
+// still read from the back buffer the game drew, at the HUD's own rate
+// (hud_capture::snapshotDue). A slower window rate leaves the HUD to the presents
+// that go through, as before.
+void heldFrame(IDXGISwapChain* swapchain) {
+    if (mirrorRate.load() == spidy::monitorRateOff && hudWanted && hudLayerWanted) {
+        presenting = true;
+        captureHud(swapchain);
+        presenting = false;
+    }
+}
 HRESULT STDMETHODCALLTYPE present(IDXGISwapChain* swapchain, UINT interval, UINT flags) {
     ++presentCalls;
     const bool outer = !presenting;
-    if (outer && holdPresent(flags))
+    if (outer && holdPresent(flags)) {
+        heldFrame(swapchain);
         return S_OK;
+    }
     if (outer) {
         presenting = true;
         presentFrame(swapchain, flags);
@@ -1135,8 +1149,10 @@ HRESULT STDMETHODCALLTYPE present1(IDXGISwapChain1* swapchain, UINT interval, UI
                                    const DXGI_PRESENT_PARAMETERS* parameters) {
     ++presentCalls;
     const bool outer = !presenting;
-    if (outer && holdPresent(flags))
+    if (outer && holdPresent(flags)) {
+        heldFrame(swapchain);
         return S_OK;
+    }
     if (outer) {
         presenting = true;
         presentFrame(swapchain, flags);
@@ -1535,7 +1551,8 @@ bool copyLatest(ID3D12Resource* left, ID3D12Resource* right, uint64_t& serial, u
     return true;
 }
 void keepShownEye(ID3D12Resource* left) {
-    if (!left || !mirrorWanted || screenWanted || !shownWanted)
+    // With the desktop view off no window shows the copy: none is made.
+    if (!left || !mirrorWanted || screenWanted || !shownWanted || mirrorRate.load() == spidy::monitorRateOff)
         return;
     std::lock_guard submitLock(submission);
     std::lock_guard recordLock(recording);
